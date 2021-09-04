@@ -1,0 +1,6 @@
+---
+kibana_version: "7.14.1"
+kibana_arch: "linux-x86_64"
+kibana_url: "https://artifacts.elastic.co/downloads/kibana/kibana-{{ kibana_version }}-{{ kibana_arch }}.tar.gz"
+kibana_tmp_pkg: "/tmp/kibana-{{ kibana_version }}-linux-x86_64.tar.gz"
+kibana_home: "/opt/kibana/{{ kibana_version }}"
