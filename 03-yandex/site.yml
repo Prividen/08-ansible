@@ -1,0 +1,212 @@
+---
+- name: Deploy docker containers for ELK stack
+  hosts: localhost
+  pre_tasks:
+    - name: Elasticsearch container
+      community.docker.docker_container:
+        name: el-instance
+        container_default_behavior: no_defaults
+        privileged: true
+        volumes:
+          - "/sys/fs/cgroup:/sys/fs/cgroup:ro,z"
+        exposed_ports:
+          - 9200
+        image: jrei/systemd-centos:8
+      tags: elasticsearch
+
+    - name: Kibana container
+      community.docker.docker_container:
+        name: k-instance
+        container_default_behavior: no_defaults
+        privileged: true
+        volumes:
+          - "/sys/fs/cgroup:/sys/fs/cgroup:ro,z"
+        ports:
+          - "5601:5601"
+        image: jrei/systemd-centos:8
+      tags: kibana
+
+    - name: Filebeat container
+      community.docker.docker_container:
+        name: fb-instance
+        container_default_behavior: no_defaults
+        privileged: true
+        volumes:
+          - "/sys/fs/cgroup:/sys/fs/cgroup:ro,z"
+        image: jrei/systemd-centos:8
+      tags: filebeat
+
+
+- name: Prepare hosts for installation
+  hosts: all
+  pre_tasks:
+    - name: Configure Elastic repo
+      ansible.builtin.yum_repository:
+        name: elasticsearch
+        description: Elasticsearch repository for 7.x packages
+        baseurl: "https://artifacts.elastic.co/packages/7.x/yum"
+        gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+  tags:
+    - elasticsearch
+    - kibana
+    - filebeat
+
+
+- name: Install Elasticsearch
+  hosts: elasticsearch
+  handlers:
+    - name: restart Elasticsearch
+      become: true
+      ansible.builtin.systemd:
+        name: elasticsearch
+        state: restarted
+        enabled: true
+      tags: elasticsearch
+
+  tasks:
+    - name: Install Elasticsearch
+      become: true
+      dnf:
+        name: "elasticsearch-{{ elk_stack_version }}"
+        state: present
+      notify: restart Elasticsearch
+      tags: elasticsearch
+
+    - name: Set Java memory limit
+      become: true
+      copy:
+        dest: /etc/elasticsearch/jvm.options.d/local.options
+        content: |
+          -Xms2g
+          -Xmx2g
+        mode: 0644
+      tags: elasticsearch
+
+    - name: Configure Elasticsearch
+      become: true
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: 0644
+      notify: restart Elasticsearch
+      tags: elasticsearch
+
+
+- name: Install Kibana
+  hosts: kibana
+  handlers:
+    - name: restart Kibana
+      become: true
+      ansible.builtin.systemd:
+        name: kibana
+        state: restarted
+        enabled: true
+      tags: kibana
+
+  tasks:
+    - name: Install Kibana
+      become: true
+      dnf:
+        name: "kibana-{{ elk_stack_version }}"
+        state: present
+      notify: restart Kibana
+      tags: kibana
+
+    - name: Configure Kibana
+      become: true
+      template:
+        src: kibana.yml.j2
+        dest: /etc/kibana/kibana.yml
+        mode: 0644
+      notify: restart Kibana
+      tags: kibana
+
+
+- name: Install Filebeat
+  hosts: filebeat
+  handlers:
+    - name: restart Filebeat
+      become: true
+      ansible.builtin.systemd:
+        name: filebeat
+        state: restarted
+        enabled: true
+      tags: filebeat
+
+  tasks:
+    - name: Install Filebeat
+      become: true
+      dnf:
+        name: "filebeat-{{ elk_stack_version }}"
+        state: present
+      notify: restart Filebeat
+      tags: filebeat
+
+    - name: Configure Filebeat
+      become: true
+      template:
+        src: filebeat.yml.j2
+        dest: /etc/filebeat/filebeat.yml
+        mode: 0644
+      notify: restart Filebeat
+      tags: filebeat
+
+    - name: Check if system module was already enabled
+      stat:
+        path: /etc/filebeat/modules.d/system.yml
+      register: fb_system_module
+      tags: filebeat
+
+    - name: Custom system module path
+      copy:
+        dest: /etc/filebeat/modules.d/system.yml.disabled
+        content: |
+          - module: system
+            syslog:
+              enabled: true
+              var.paths: ["/var/log/dnf.log", "/var/log/filebeat/filebeat"]
+            auth:
+              enabled: true
+        mode: 0644
+      when: not fb_system_module.stat.exists
+      tags: filebeat
+
+    - name: Wait for Elasticsearch port is up
+      wait_for:
+        host: "{{ hostvars['el-instance'].ansible_all_ipv4_addresses[0] }}"
+        port: 9200
+      tags: filebeat
+
+    - name: Wait for Kibana port is up
+      wait_for:
+        host: "{{ hostvars['k-instance'].ansible_all_ipv4_addresses[0] }}"
+        port: 5601
+      tags: filebeat
+
+  post_tasks:
+    - name: Enable filebeat system module
+      become: true
+      command:
+        cmd: filebeat modules enable system
+        chdir: /usr/share/filebeat/bin
+        creates: /etc/filebeat/modules.d/system.yml
+      notify: restart Filebeat
+      tags: filebeat
+
+    - name: Check if filebeat dashboards was already configured
+      uri:
+        url: "http://{{ hostvars['el-instance'].ansible_all_ipv4_addresses[0] }}:9200/.kibana_{{ elk_stack_version }}/_search?q=filebeat"
+        return_content: true
+      register: dashboards_result
+      tags: filebeat
+
+    - name: Load Kibana dashboard
+      become: true
+      command:
+        cmd: filebeat setup
+        chdir: /usr/share/filebeat/bin
+      register: filebeat_setup
+      until: filebeat_setup is succeeded
+      notify: restart Filebeat
+      when: dashboards_result.content | length < 1000
+      tags: filebeat
