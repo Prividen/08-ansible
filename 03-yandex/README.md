@@ -73,3 +73,97 @@
 ---
 Идемпотентность плейбука достигнута, линт-проверки проходит без ошибок. 
 На таски развешаны соответствующие теги (`elasticsearch`, `kibana`, `filebeat`).
+---
+# Yandex-облако
+Ну, и чтобы не удаляться далеко от заявленной темы занятия, поработаем с Яндекс-облаком с помощью cli-клиента и [Терраформа](main.tf):
+```yaml
+mak@test-xu20:~$ yc compute instance create --name my-yc-instance1 --ssh-key ~/.ssh/id_rsa.pub
+done (23s)
+id: fhmtthakdctivoiv1c4d
+folder_id: b1g200bppkibol684gqj
+created_at: "2021-09-09T20:39:03Z"
+name: my-yc-instance1
+zone_id: ru-central1-a
+platform_id: standard-v2
+resources:
+  memory: "2147483648"
+  cores: "2"
+  core_fraction: "100"
+status: RUNNING
+boot_disk:
+  mode: READ_WRITE
+  device_name: fhm6jg3o8jmgjogtkmbl
+  auto_delete: true
+  disk_id: fhm6jg3o8jmgjogtkmbl
+network_interfaces:
+- index: "0"
+  mac_address: d0:0d:1d:ec:55:46
+  subnet_id: e9baom1v9g6ete60l0qe
+  primary_v4_address:
+    address: 10.128.0.30
+fqdn: fhmtthakdctivoiv1c4d.auto.internal
+scheduling_policy: {}
+network_settings:
+  type: STANDARD
+placement_policy: {}
+
+mak@test-xu20:~$ yc compute instance add-one-to-one-nat --network-interface-index 0  fhmtthakdctivoiv1c4d
+done (5s)
+id: fhmtthakdctivoiv1c4d
+folder_id: b1g200bppkibol684gqj
+created_at: "2021-09-09T20:39:03Z"
+name: my-yc-instance1
+zone_id: ru-central1-a
+platform_id: standard-v2
+resources:
+  memory: "2147483648"
+  cores: "2"
+  core_fraction: "100"
+status: RUNNING
+boot_disk:
+  mode: READ_WRITE
+  device_name: fhm6jg3o8jmgjogtkmbl
+  auto_delete: true
+  disk_id: fhm6jg3o8jmgjogtkmbl
+network_interfaces:
+- index: "0"
+  mac_address: d0:0d:1d:ec:55:46
+  subnet_id: e9baom1v9g6ete60l0qe
+  primary_v4_address:
+    address: 10.128.0.30
+    one_to_one_nat:
+      address: 62.84.113.14
+      ip_version: IPV4
+fqdn: fhmtthakdctivoiv1c4d.auto.internal
+scheduling_policy: {}
+network_settings:
+  type: STANDARD
+placement_policy: {}
+```
+```shell
+mak@test-xu20:~$ terraform apply -auto-approve
+...
+yandex_compute_instance.elk-instances["k-instance"]: Creating...
+yandex_compute_instance.elk-instances["fb-instance"]: Creating...
+yandex_compute_instance.elk-instances["el-instance"]: Creating...
+yandex_compute_instance.elk-instances["k-instance"]: Still creating... [10s elapsed]
+yandex_compute_instance.elk-instances["fb-instance"]: Still creating... [10s elapsed]
+yandex_compute_instance.elk-instances["el-instance"]: Still creating... [10s elapsed]
+yandex_compute_instance.elk-instances["el-instance"]: Creation complete after 20s [id=fhm2o133pv0c3kn68691]
+yandex_compute_instance.elk-instances["k-instance"]: Still creating... [20s elapsed]
+yandex_compute_instance.elk-instances["fb-instance"]: Still creating... [20s elapsed]
+yandex_compute_instance.elk-instances["fb-instance"]: Creation complete after 20s [id=fhmnj3abnaet9ikecl66]
+yandex_compute_instance.elk-instances["k-instance"]: Creation complete after 20s [id=fhm4b6c9gtgbbbtk3lr9]
+
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_elk_instances = {
+  "el-instance" = "62.84.113.235"
+  "fb-instance" = "62.84.114.208"
+  "k-instance" = "62.84.114.226"
+}
+```
+
+Интересно, как бы эти Outputs терраформа запихнуть в ансиблево инвентори?..
