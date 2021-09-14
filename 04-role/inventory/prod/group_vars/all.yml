@@ -1,0 +1,9 @@
+---
+elk_stack_version: "7.14.1"
+elasticsearch_version: "{{ elk_stack_version }}"
+logstash_version: "{{ elk_stack_version }}"
+kibana_version: "{{ elk_stack_version }}"
+filebeat_version: "{{ elk_stack_version }}"
+elasticsearch_hosts: "{{ groups['elasticsearch'] }}"
+logstash_hosts: "{{ elasticsearch_hosts }}"
+kibana_host: "{{ groups['kibana'][0] }}"
